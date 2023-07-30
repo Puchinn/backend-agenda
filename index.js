@@ -1,15 +1,13 @@
+const Persona = require('./models')
 const express = require('express')
 const morgan = require('morgan')
 const cors = require('cors')
 const app = express()
+const PORT = process.env.PORT || 3001
 
 app.use(express.json())
 app.use(cors())
 app.use(express.static('dist'))
-
-const pageNotFound = (req, res) => {
-  res.status(404).send({ error: 'pagina no encontrada' })
-}
 
 morgan.token('info', (req) => {
   return JSON.stringify({ ...req.body })
@@ -40,93 +38,87 @@ app.use(
     ].join(' ')
   })
 )
-const PORT = process.env.PORT || 3001
 
-let personas = [
-  {
-    name: 'Arto Hellas',
-    number: '66659-56',
-    id: 1,
-  },
-  {
-    name: 'Ada Lovelace',
-    number: '39-44-5323523',
-    id: 2,
-  },
-  {
-    name: 'Dan Abramov',
-    number: '12-43-234345',
-    id: 3,
-  },
-  {
-    name: 'Mary Poppendieck',
-    number: '39-23-6423122',
-    id: 4,
-  },
-  {
-    name: 'Esteban Sayago',
-    number: '12312313',
-    id: 6,
-  },
-]
-
-const idAleatoria = (nro) => {
-  const nroRandom = Math.trunc(Math.random() * 1000)
-  const verificar = personas.some((e) => e.id === nroRandom)
-  if (verificar) {
-    return idAleatoria(nroRandom)
-  }
-  return nroRandom
-}
-
+// TODO: verificar que el nombre no se repita...
 app.post('/api/personas', (req, res) => {
-  const persona = {
-    ...req.body,
-    id: idAleatoria(),
-  }
+  const personaReq = req.body
 
-  if (!persona.name) {
+  if (!personaReq.name) {
     return res.status(400).json({ error: 'el nombre no esta definido' })
   }
-  if (!persona.number) {
+  if (!personaReq.number) {
     return res.status(400).json({ error: 'el numero no esta definido' })
   }
-  if (personas.some((p) => p.name === persona.name)) {
-    return res.status(400).json({ error: 'el nombre ya esta definido' })
-  }
+  const nuevaPersona = new Persona({
+    name: personaReq.name,
+    number: personaReq.number,
+  })
 
-  personas.concat(persona)
-  res.json(persona)
+  nuevaPersona.save().then((persona) => res.json(persona))
 })
 
 app.get('/api/personas', (req, res) => {
-  res.json(personas)
+  Persona.find().then((personas) => res.json(personas))
 })
 
-app.get('/api/personas/:id', (req, res) => {
-  const persona = personas.find((p) => p.id === Number(req.params.id))
-  if (persona) {
-    return res.json(persona)
-  }
-  res.status(404).end()
+app.get('/api/personas/:id', (req, res, next) => {
+  const id = req.params.id
+  Persona.findById(id)
+    .then((data) => {
+      if (data) {
+        return res.json(data)
+      } else {
+        return res.status(404).end()
+      }
+    })
+    .catch((error) => {
+      next(error)
+    })
 })
 
 app.get('/info', (req, res) => {
   const date = new Date().toLocaleString()
-  res.send(`
-  <h1>en la agenda tenemos informacion para ${personas.length} contactos </h1>
-  <p>fecha : ${date}</p> 
-  `)
+  Persona.find().then((personas) => {
+    res.send(`
+    <h1>en la agenda tenemos informacion para ${personas.length} personas</h1>
+    <p>fecha : ${date}</p>
+    `)
+  })
+})
+
+app.put('/api/personas/:id', (req, res) => {
+  const id = req.params.id
+  const body = req.body
+
+  const persona = {
+    name: body.name,
+    number: body.number,
+  }
+
+  Persona.findByIdAndUpdate(id, persona, { new: true }).then(() =>
+    res.status(201).end()
+  )
 })
 
 app.delete('/api/personas/:id', (req, res) => {
-  const persona = personas.find((p) => p.id === Number(req.params.id))
-  if (persona) {
-    personas = personas.filter((p) => p.id !== Number(req.params.id))
-    return res.status(200).end()
-  }
-  res.status(404).end()
+  const id = req.params.id
+  Persona.findByIdAndRemove(id).then(() => res.status(200).end())
 })
 
+const pageNotFound = (req, res) => {
+  res.status(404).send({ error: 'pagina no encontrada' })
+}
+
 app.use(pageNotFound)
+
+const errorHandler = (error, req, res, next) => {
+  console.log(error)
+  if (error.name === 'CastError') {
+    return res.status(404).send({ error: 'formato de id desconocida' })
+  }
+  next(error)
+}
+
+app.use(errorHandler)
+
 app.listen(PORT)
